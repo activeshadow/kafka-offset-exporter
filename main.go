@@ -24,6 +24,7 @@ type serverConfig struct {
 
 func main() {
 	brokerString := flag.String("brokers", "", "Kafka brokers to connect to, comma-separated")
+	credentials := flag.String("credentials", "", "SASL user/pass credentials to use for Kafka")
 	topics := flag.String("topics", "", "Only fetch offsets for topics matching this regex (default all)")
 	groups := flag.String("groups", "", "Also fetch offsets for consumer groups matching this regex (default none)")
 	port := flag.Int("port", 9000, "Port to export metrics on")
@@ -38,7 +39,7 @@ func main() {
 	serverConfig := mustNewServerConfig(*port, *path)
 	scrapeConfig := mustNewScrapeConfig(*refresh, *fetchMin, *fetchMax, *topics, *groups)
 
-	kafka := mustNewKafka(*brokerString)
+	kafka := mustNewKafka(*brokerString, *credentials)
 	defer kafka.Close()
 
 	enforceGracefulShutdown(func(wg *sync.WaitGroup, shutdown chan struct{}) {
@@ -72,7 +73,7 @@ func enforceGracefulShutdown(f func(wg *sync.WaitGroup, shutdown chan struct{}))
 	wg.Wait()
 }
 
-func mustNewKafka(brokerString string) sarama.Client {
+func mustNewKafka(brokerString, credentials string) sarama.Client {
 	brokers := strings.Split(brokerString, ",")
 	for i := range brokers {
 		brokers[i] = strings.TrimSpace(brokers[i])
@@ -85,6 +86,14 @@ func mustNewKafka(brokerString string) sarama.Client {
 	cfg := sarama.NewConfig()
 	cfg.Version = sarama.V1_0_0_0
 	cfg.ClientID = "kafka-offset-exporter"
+
+	if credentials != "" {
+		creds := strings.Split(credentials, "/")
+
+		cfg.Net.SASL.Enable = true
+		cfg.Net.SASL.User = creds[0]
+		cfg.Net.SASL.Password = creds[1]
+	}
 
 	client, err := sarama.NewClient(brokers, cfg)
 	if err != nil {
